@@ -1,0 +1,27 @@
+{
+  "name": "neo4j-batch-index-stream",
+  "version": "0.0.1",
+  "description": "A writable stream for batch indexing records into Neo4j.",
+  "main": "index.js",
+  "scripts": {
+    "test": "less ./test/data.txt | node ./test/test.js"
+  },
+  "author": "Fabien Tesselaar",
+  "license": "MIT",
+   "dependencies": {
+    "flushwritable": "^1.0.0",
+    "request": "^2.72.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:Tessmore/neo4j-batch-index-stream.git"
+  },
+  "keywords": [
+    "neo4j",
+    "stream",
+    "writable",
+    "write",
+    "bulk",
+    "batch"
+  ]
+}
