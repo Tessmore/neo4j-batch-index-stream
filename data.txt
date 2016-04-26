@@ -1,2 +1,0 @@
-Fabien|Pizza|likes
-Nick|Beer|likes

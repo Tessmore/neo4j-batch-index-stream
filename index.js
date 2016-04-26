@@ -14,8 +14,10 @@ function Neo4jBatchWritable(username, password, options) {
     FlushWritable.call(this, options);
 
     this._auth = new Buffer(username + ":" + password).toString("base64");
-    this.highWaterMark = options.highWaterMark || 256;
+    this.highWaterMark = options.highWaterMark || 512;
+
     this.queue = [];
+    this._id = 0;
 }
 
 Neo4jBatchWritable.prototype.batch = function(records, callback) {
@@ -29,7 +31,7 @@ Neo4jBatchWritable.prototype.batch = function(records, callback) {
         "json"   : records,
     };
 
-    // console.log(JSON.stringify(options.json, null, 2))
+    console.log(JSON.stringify(options.json, null, 2))
 
     request(options, function(err, res, data) {
         if (err) {
@@ -37,9 +39,13 @@ Neo4jBatchWritable.prototype.batch = function(records, callback) {
             return callback(err);
         }
 
+        console.log(data)
+        // console.log(JSON.stringify(data, null, 2));
+
         callback();
     });
 };
+
 
 // Inherit _flush
 Neo4jBatchWritable.prototype._flush = function _flush(callback) {
@@ -47,25 +53,65 @@ Neo4jBatchWritable.prototype._flush = function _flush(callback) {
         return callback();
     }
 
+    var records = [];
+    var nodemap = {};
+
     try {
-        var records = [];
+        var nodes = [];
+        var labels = [];
+        var relations = [];
+
+        var nodeId = 1;
 
         for (var i=0; i < this.queue.length; i++) {
-            var node = {
-                "method": 'POST',
-                "to"    : '/node',
-                "id"    : i,
-                "body"  : this.queue[i]
+            var node = this.queue[i];
+
+            if (node.hasOwnProperty("label")) {
+                // Build Label
+                labels.push({
+                    "method" : 'POST',
+                    "to"     : '{' + nodeId + '}/labels',
+                    "body"   : node["label"],
+                });
+
+                // Build Node
+                var tmp = {
+                    "method": 'POST',
+                    "to"    : '/node',
+                    "id"    : nodeId,
+                    "body"  : ""
+                }
+
+                nodemap[node._id] = nodeId;
+
+                delete node["_id"];
+                delete node["label"];
+
+                // Put rest of body as Node
+                tmp["body"] = node;
+
+                nodeId++;
+                nodes.push(tmp);
             }
 
-            var label = {
-                method : 'POST',
-                to: '{' + i + '}/labels',
-                body:  "Person",
+            else if (node.hasOwnProperty("relation")) {
+                // Create Relation by nodeID's
+                relations.push({
+                    "method": 'POST',
+                    "to": '{' + nodemap[node["start"]] + '}/relationships',
+                    "body": {
+                         "to": '{' + nodemap[node["end"]] + '}',
+                         "type": node["relation"],
+                    }
+                });
             }
-
-            records.push(node, label);
+            else {
+                // pass
+            }
         }
+
+        console.log(nodemap)
+        records = [].concat(nodes, labels, relations);
     }
     catch (err) {
         console.log(err)
@@ -73,8 +119,10 @@ Neo4jBatchWritable.prototype._flush = function _flush(callback) {
     }
 
     this.queue = [];
+
     this.batch(records, function(err) {
         if (err) {
+            console.log(err);
             return callback(err);
         }
         callback();
