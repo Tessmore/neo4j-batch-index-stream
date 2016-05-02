@@ -7,17 +7,15 @@ A writable stream for batch indexing labeled nodes and relations into Neo4j. For
 
 Given the following `test.csv` file:
 
-```//// test.csv
-
+```
 Fabien|likes|Nick
 Nick|dislikes|Fabien
 Jochem|likes|Nick
 Lydia|likes|Fabien
-... etc
 ```
 
 
-One could run `less test.csv | node.js main.js` to pipe it through the following script that uses `neo4j-batch-index-stream`.
+And the following example script, that uses `neo4j-batch-index-stream`. You can then run `less test.csv | node.js main.js` to pipe the contents of test.csv into main.js, which converts the csv into objects that can be batch inserted in neo4j.
 
 ```
 //// main.js
