@@ -17,7 +17,7 @@ Lydia|likes|Fabien
 
 And the following example script, that uses `neo4j-batch-index-stream`. You can then run `less test.csv | node.js main.js` to pipe the contents of test.csv into main.js, which converts the csv into objects that can be batch inserted in neo4j.
 
-```
+```javascript
 //// main.js
 
 var through2 = require('through2');
@@ -82,7 +82,7 @@ process.stdin
 })
 ```
 
-![Neo4j database with people and relations](./neo4j_example.png)
+![Neo4j database with people and relations](./test/neo4j_example.png)
 
 
 ### Errors
