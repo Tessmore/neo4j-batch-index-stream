@@ -4,7 +4,6 @@ var through2 = require('through2');
 var split2 = require('split2');
 var Neo4jStream = require('../index.js');
 
-var nodeID = 1;
 
 var buildRecords = through2({ objectMode: true }, function(chunk, enc, callback) {
     var line = chunk.toString().trim();
@@ -15,19 +14,17 @@ var buildRecords = through2({ objectMode: true }, function(chunk, enc, callback)
         var person = {
             "label" : "Person",
             "name"  : parts[0],
-            "_id"   : nodeID++,
         };
 
         var obj = {
             "label": "Object",
             "name" : parts[2],
-            "_id"  : nodeID++,
         }
 
         var relation = {
             "relation" : parts[1],
-            "start"    : person._id,
-            "end"      : obj._id,
+            "start"    : person,
+            "end"      : obj,
         }
 
         this.push(person);
@@ -43,7 +40,7 @@ var username = "neo4j";
 var password = "test123";
 
 var stream = new Neo4jStream(username, password, {
-    highWaterMark: 256
+    highWaterMark: 3
 });
 
 
@@ -52,8 +49,8 @@ process.stdin
 .pipe(buildRecords)
 .pipe(stream)
 .on('error', function(error) {
-      console.log(error);
+    console.log(error);
 })
 .on('finish', function() {
-      console.log("DONE");
+    console.log("DONE");
 })

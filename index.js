@@ -1,10 +1,29 @@
 'use strict';
 
+var crypto = require('crypto');
 var util = require('util');
 var FlushWritable = require('flushwritable');
 var request = require('request');
 
 util.inherits(Neo4jBatchWritable, FlushWritable);
+
+
+function generateSHA1FromObj(obj) {
+    var str = "";
+
+    for (var k in obj) {
+        str += k + obj[k].toString().toLowerCase().trim();
+    }
+
+    var shasum = crypto.createHash('sha1');
+    shasum.update(str);
+    return shasum.digest('hex');
+}
+
+
+// Function to set contraints
+// CREATE CONSTRAINT ON (p:Person) ASSERT p.sha1 IS UNIQUE
+
 
 // Wrapper using request to batch insert into a neo4j server
 function Neo4jBatchWritable(username, password, options) {
@@ -13,105 +32,124 @@ function Neo4jBatchWritable(username, password, options) {
 
     FlushWritable.call(this, options);
 
+    this.url = options.url || "http://localhost:7474/db/data/";
     this._auth = new Buffer(username + ":" + password).toString("base64");
     this.highWaterMark = options.highWaterMark || 512;
 
+
     this.queue = [];
-    this._id = 0;
+
+    this.nodeId = 1;
+    this.nodemap = {};
 }
 
-Neo4jBatchWritable.prototype.batch = function(records, callback) {
-    var options = {
-        "url"    : 'http://localhost:7474/db/data/batch',
-         "headers": {
-            "X-Stream": true,
-            'Authorization': 'Basic ' + this._auth
+
+Neo4jBatchWritable.prototype.getArgs = function(endpoint, body) {
+    var url = this.url + (endpoint === "transaction" ? "transaction/commit" : "batch");
+
+    return {
+        "method": 'POST',
+        "url" : url,
+        "headers": {
+            'Content-Type': "application/json; charset=UTF-8; stream=true",
+            'Authorization': 'Basic ' + this._auth,
+            'User-Agent': 'neo4j-batch-index'
         },
-        "method" : 'POST',
-        "json"   : records,
+        "json": body,
     };
+}
 
-    console.log(JSON.stringify(options.json, null, 2))
+Neo4jBatchWritable.prototype.batch = function(nodes, callback) {
+    var args = this.getArgs("batch", nodes);
 
-    request(options, function(err, res, data) {
+    request(args, function(err, res, data) {
         if (err) {
             console.log(err);
             return callback(err);
         }
-
-        console.log(data)
-        // console.log(JSON.stringify(data, null, 2));
-
         callback();
     });
 };
 
 
+Neo4jBatchWritable.prototype.add_relations = function(relations, callback) {
+    var args = this.getArgs("transaction", { "statements": relations });
+
+    request(args, function(err, res, data) {
+        if (err) {
+            console.log(err);
+            return callback(err);
+        }
+        callback();
+    });
+};
+
 // Inherit _flush
-Neo4jBatchWritable.prototype._flush = function _flush(callback) {
+Neo4jBatchWritable.prototype._flush = function (callback) {
     if (this.queue.length === 0) {
         return callback();
     }
 
-    var records = [];
-    var nodemap = {};
+    var nodes = [];
+    var labels = [];
+    var relations = [];
 
     try {
-        var nodes = [];
-        var labels = [];
-        var relations = [];
-
-        var nodeId = 1;
-
         for (var i=0; i < this.queue.length; i++) {
+            // Clone node object
             var node = this.queue[i];
 
             if (node.hasOwnProperty("label")) {
-                // Build Label
-                labels.push({
-                    "method" : 'POST',
-                    "to"     : '{' + nodeId + '}/labels',
-                    "body"   : node["label"],
-                });
+                var _id = generateSHA1FromObj(node);
+                var localNodeId = this.nodeId;
 
-                // Build Node
-                var tmp = {
-                    "method": 'POST',
-                    "to"    : '/node',
-                    "id"    : nodeId,
-                    "body"  : ""
+                // Check if we didn't already add the node earlier
+                if (this.nodemap.hasOwnProperty(_id)) {
+                    localNodeId = this.nodemap[_id];
                 }
+                else {
+                    this.nodemap[_id] = this.nodeId;
 
-                nodemap[node._id] = nodeId;
+                    // Build clone, so you don't get reference problems
+                    var clone = util._extend({}, node);
 
-                delete node["_id"];
-                delete node["label"];
+                    // Add sha1 for relation referencing
+                    clone["sha1"] = _id;
+                    delete clone["label"];
 
-                // Put rest of body as Node
-                tmp["body"] = node;
+                    // Insert node first
+                    nodes.push({
+                        "method": 'POST',
+                        "to"    : '/node',
+                        "id"    : i,
+                        "body"  : clone
+                    });
 
-                nodeId++;
-                nodes.push(tmp);
+                    // Add reference label (e.g. batch pointer to node)
+                    labels.push({
+                        "method" : 'POST',
+                        "to": '{' + i + '}/labels',
+                        "body":  node["label"],
+                    });
+                }
             }
-
             else if (node.hasOwnProperty("relation")) {
-                // Create Relation by nodeID's
+                // Create relation
                 relations.push({
-                    "method": 'POST',
-                    "to": '{' + nodemap[node["start"]] + '}/relationships',
-                    "body": {
-                         "to": '{' + nodemap[node["end"]] + '}',
-                         "type": node["relation"],
+                    "statement": `MATCH (a:${node.start.label} {sha1: {START} }), (b:${node.end.label} {sha1: {END} }) WITH a,b
+                       CREATE (a)-[:${node.relation}]->(b) return Null`,
+                    "parameters": {
+                        "START": generateSHA1FromObj(node["start"]),
+                        "END"  : generateSHA1FromObj(node["end"])
                     }
                 });
             }
             else {
                 // pass
             }
-        }
 
-        console.log(nodemap)
-        records = [].concat(nodes, labels, relations);
+            this.nodeId++;
+        }
     }
     catch (err) {
         console.log(err)
@@ -119,19 +157,27 @@ Neo4jBatchWritable.prototype._flush = function _flush(callback) {
     }
 
     this.queue = [];
+    var records = [].concat(nodes, labels);
 
     this.batch(records, function(err) {
         if (err) {
-            console.log(err);
+            console.log("ERROR adding nodes", err);
             return callback(err);
         }
-        callback();
-    });
+
+        this.add_relations(relations, function(err) {
+            if (err) {
+                console.log("ERROR adding relations", err);
+                return callback(err);
+            }
+            callback();
+        });
+    }.bind(this));
 };
 
 
 // Inherit _write
-Neo4jBatchWritable.prototype._write = function _write(record, enc, callback) {
+Neo4jBatchWritable.prototype._write = function (record, enc, callback) {
     this.queue.push(record);
 
     if (this.queue.length >= this.highWaterMark) {

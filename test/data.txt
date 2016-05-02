@@ -1,3 +1,11 @@
 Fabien|likes|Pizza
 Nick|tastes|Beer
 Fabien|tastes|Beer
+Nick|loves|Pizza
+Fabien|hates|Beer
+Fabien|dislikes|Beer
+Beer|follows|Fabien
+Beer|likes|Fabien
+Beer|loves|Fabien
+Beer|loves|Pepijn
+Beer|loves|Jochem
