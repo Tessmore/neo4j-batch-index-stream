@@ -82,10 +82,12 @@ process.stdin
 })
 ```
 
+#### Result
+
 ![Neo4j database with people and relations](./test/neo4j_example.png)
 
 
-### Errors
+### Possible errors
 
 `Error: Error: connect ECONNREFUSED 127.0.0.1:7474`
 > Neo4j is not running or not available.
@@ -101,3 +103,10 @@ Error: {
 }
 ```
 > You either have the default neo4j/neo4j password or gave incorrect credentials.
+
+
+### Contributing
+
+If you have neo4j running, you can do a simple batch insert with `npm test`.
+
+If you feel something is missing, you can open an issue stating the problem and desired result. If code is unclear give me a @mention. Pull requests are welcome.
