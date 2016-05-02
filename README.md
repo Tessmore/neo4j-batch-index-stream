@@ -1,7 +1,7 @@
 Neo4j batch index stream
 ==========================
 
-A writable stream using `flushwritable`, to allow batch indexing labeled nodes and their relations into Neo4j. Useful if you have many nodes (< 10 milion nodes) that need to be configured, such as their label and attributes or have many relationship types. The `Neo4j batch import tool` is very good, but sometimes you have to build csv files for all node types and relations between them.
+A writable stream, using `flushwritable`, to allow batch indexing labeled nodes and their relations into Neo4j. Useful if you have many specific nodes (< 10 milion nodes) that have their own label, attributes, and relationship types. The `Neo4j batch import tool` is very good, but in this use case you have to build many seperate csv files for all node types and relations between them.
 
 
 ### Usage
