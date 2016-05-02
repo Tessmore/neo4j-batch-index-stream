@@ -4,7 +4,7 @@
   "description": "A writable stream for batch indexing records into Neo4j.",
   "main": "index.js",
   "scripts": {
-    "test": "less ./test/data.txt | node ./test/test.js"
+    "test": "less ./test/MRREL-example.RRF | node ./test/test.js"
   },
   "author": "Fabien Tesselaar",
   "license": "MIT",

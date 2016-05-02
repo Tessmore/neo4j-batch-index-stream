@@ -26,37 +26,105 @@ function generateSHA1FromObj(obj) {
 
 
 // Wrapper using request to batch insert into a neo4j server
+//
+// Possible options:
+//   - objectMode
+//   - highWaterMark
+//   - url
+//
 function Neo4jBatchWritable(username, password, options) {
     options = options || {};
     options.objectMode = true;
+    this.highWaterMark = options.highWaterMark || 512;
 
     FlushWritable.call(this, options);
 
     this.url = options.url || "http://localhost:7474/db/data/";
     this._auth = new Buffer(username + ":" + password).toString("base64");
-    this.highWaterMark = options.highWaterMark || 512;
 
-
+    this.index_key = options.index_key || "id";
     this.queue = [];
 
     this.nodeId = 1;
     this.nodemap = {};
+
+    // Quick check if connection is available
+    var args = this.getArgs()
+    request(args, function(err, res, data) {
+        if (err) {
+            throw Error(err);
+        }
+
+        var parsed = false;
+        try {
+            parsed = JSON.parse(data);
+        }
+        catch (err) {
+            throw Error("Neo4j returned invalid JSON.")
+        }
+
+        if (parsed && parsed.hasOwnProperty("errors")) {
+            throw Error(data);
+        }
+    });
 }
 
 
 Neo4jBatchWritable.prototype.getArgs = function(endpoint, body) {
-    var url = this.url + (endpoint === "transaction" ? "transaction/commit" : "batch");
+    var url = this.url;
+    var method = "GET";
 
-    return {
-        "method": 'POST',
+    if (endpoint) {
+        // Supported endpoints
+        if (endpoint === "transaction") {
+            url += "transaction/commit";
+            method = "POST";
+        }
+        else if (endpoint === "batch") {
+            url += "batch";
+            method = "POST";
+        }
+    }
+
+    var args = {
+        "method": method,
         "url" : url,
         "headers": {
             'Content-Type': "application/json; charset=UTF-8; stream=true",
             'Authorization': 'Basic ' + this._auth,
             'User-Agent': 'neo4j-batch-index'
-        },
-        "json": body,
+        }
     };
+
+    if (typeof body !== "undefined") {
+        args["json"] = body;
+    }
+
+    return args;
+}
+
+// Add index for fast node lookup when inserting relations
+//
+// @labels : list of objects
+//         = [ [ Label, index_key ], .. ]
+Neo4jBatchWritable.prototype.index = function(labels, callback) {
+    callback = typeof callback === "function" ? callback : function(){};
+    var statements = [];
+
+    for (var i=0; i<labels.length; i++) {
+        statements.push({
+            "statement": `CREATE INDEX ON :${labels[i][0]}(${labels[i][1]})`
+        });
+    }
+
+    var args = this.getArgs("transaction", {"statements": statements })
+    request(args, function(err, res, data) {
+        if (err) {
+            callback(err, false);
+        }
+
+        callback(data);
+    });
 }
 
 Neo4jBatchWritable.prototype.batch = function(nodes, callback) {
@@ -100,8 +168,23 @@ Neo4jBatchWritable.prototype._flush = function (callback) {
             var node = this.queue[i];
 
             if (node.hasOwnProperty("label")) {
-                var _id = generateSHA1FromObj(node);
+                // Build clone, so you don't get reference problems
+                var clone = util._extend({}, node);
                 var localNodeId = this.nodeId;
+                var _id;
+
+                // Check for unique index
+                if (node.hasOwnProperty(this.index_key)) {
+                    _id = node[this.index_key];
+                }
+                else {
+                    // No given index, use sha1 of node object
+                    _id = generateSHA1FromObj(node);
+
+                    // Add sha1 for relation referencing
+                    clone["sha1"] = _id;
+                    this.index_key = "sha1";
+                }
 
                 // Check if we didn't already add the node earlier
                 if (this.nodemap.hasOwnProperty(_id)) {
@@ -110,11 +193,6 @@ Neo4jBatchWritable.prototype._flush = function (callback) {
                 else {
                     this.nodemap[_id] = this.nodeId;
 
-                    // Build clone, so you don't get reference problems
-                    var clone = util._extend({}, node);
-
-                    // Add sha1 for relation referencing
-                    clone["sha1"] = _id;
                     delete clone["label"];
 
                     // Insert node first
@@ -134,13 +212,24 @@ Neo4jBatchWritable.prototype._flush = function (callback) {
                 }
             }
             else if (node.hasOwnProperty("relation")) {
+
+                // If no index key is given -> find node by sha1
+                if (this.index_key === "sha1") {
+                    var start = generateSHA1FromObj(node["start"]);
+                    var end = generateSHA1FromObj(node["end"]);
+                }
+                else {
+                    var start = node["start"][this.index_key];
+                    var end = node["end"][this.index_key];
+                }
+
                 // Create relation
                 relations.push({
-                    "statement": `MATCH (a:${node.start.label} {sha1: {START} }), (b:${node.end.label} {sha1: {END} }) WITH a,b
+                    "statement": `MATCH (a:${node.start.label} {${this.index_key}: {START} }), (b:${node.end.label} {${this.index_key}: {END} }) WITH a,b
                        CREATE (a)-[:${node.relation}]->(b) return Null`,
                     "parameters": {
-                        "START": generateSHA1FromObj(node["start"]),
-                        "END"  : generateSHA1FromObj(node["end"])
+                        "START": start,
+                        "END"  : end
                     }
                 });
             }
