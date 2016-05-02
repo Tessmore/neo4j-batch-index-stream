@@ -21,16 +21,13 @@ function generateSHA1FromObj(obj) {
 }
 
 
-// Function to set contraints
-// CREATE CONSTRAINT ON (p:Person) ASSERT p.sha1 IS UNIQUE
-
-
 // Wrapper using request to batch insert into a neo4j server
 //
 // Possible options:
 //   - objectMode
 //   - highWaterMark
 //   - url
+//   - index_key
 //
 function Neo4jBatchWritable(username, password, options) {
     options = options || {};
